@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Sanction Bypass Configurator
+# هدف: اعمال یا شبیه‌سازی تنظیمات تحریم‌گذر (DNS/Proxy) با امکان rollback
+# نویسنده: DevOps/SRE Challenge
+# پیش‌نیاز: bash, resolvectl یا /etc/resolv.conf
+
+set -euo pipefail
+
+#######################################
+# Config (قابل توسعه)
+#######################################
+# هر سرویس به‌صورت یک بلاک تعریف می‌شود تا افزودن سرویس جدید ساده باشد
+SERVICES=("shecan" "begzar" "403" "iranhost" "custom")
+
+# DNSهای پیشنهادی (نمونه‌های رایج)
+DNS_SHECAN=("178.22.122.100" "185.51.200.2")
+DNS_BEGZAR=("185.55.226.26" "185.55.225.25")
+DNS_403=("10.202.10.202" "10.202.10.102")
+DNS_IRANHOST=("194.5.175.250" "194.5.175.251")
+
+BACKUP_FILE="/tmp/resolv.conf.backup.$(date +%s)"
+DRY_RUN=false
+
+#######################################
+# Helpers
+#######################################
+require_root() {
+  if [[ "$EUID" -ne 0 ]]; then
+    echo "[ERROR] این اسکریپت نیاز به دسترسی root دارد."
+    exit 1
+  fi
+}
+
+print_header() {
+  echo "-----------------------------------------"
+  echo " Sanction Bypass Configurator"
+  echo "-----------------------------------------"
+}
+
+usage() {
+  cat <<EOF
+Usage: $0 [--dry-run]
+  --dry-run   شبیه‌سازی بدون اعمال تغییرات سیستمی
+EOF
+}
+
+apply_dns() {
+  local dns_list=("$@")
+  echo "[INFO] Backup گرفتن از resolv.conf در: $BACKUP_FILE"
+  cp /etc/resolv.conf "$BACKUP_FILE"
+
+  echo "[INFO] اعمال DNS جدید: ${dns_list[*]}"
+  {
+    for d in "${dns_list[@]}"; do
+      echo "nameserver $d"
+    done
+  } > /etc/resolv.conf
+}
+
+show_rollback() {
+  echo "\n[ROLLBACK] برای بازگشت به وضعیت قبل:"
+  echo "sudo cp $BACKUP_FILE /etc/resolv.conf"
+}
+
+#######################################
+# Args
+#######################################
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=true
+fi
+
+#######################################
+# Main
+#######################################
+print_header
+
+# منوی انتخاب
+PS3="یک سرویس را انتخاب کنید: "
+select svc in "شکن" "بگذر" "403.online" "ایران‌هاست" "سفارشی" "خروج"; do
+  case "$REPLY" in
+    1) CHOICE="shecan"; break;;
+    2) CHOICE="begzar"; break;;
+    3) CHOICE="403"; break;;
+    4) CHOICE="iranhost"; break;;
+    5) CHOICE="custom"; break;;
+    6) exit 0;;
+    *) echo "انتخاب نامعتبر";;
+  esac
+done
+
+echo "[INFO] انتخاب شد: $CHOICE"
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo "[DRY-RUN] هیچ تغییری اعمال نخواهد شد."
+fi
+
+case "$CHOICE" in
+  shecan)
+    DNS=("${DNS_SHECAN[@]}")
+    ;;
+  begzar)
+    DNS=("${DNS_BEGZAR[@]}")
+    ;;
+  403)
+    DNS=("${DNS_403[@]}")
+    ;;
+  iranhost)
+    DNS=("${DNS_IRANHOST[@]}")
+    ;;
+  custom)
+    read -rp "DNS اول را وارد کنید: " d1
+    read -rp "DNS دوم را وارد کنید: " d2
+    DNS=("$d1" "$d2")
+    ;;
+  *)
+    echo "[ERROR] گزینه نامعتبر"
+    exit 1
+    ;;
+esac
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo "[SIMULATION] DNS پیشنهادی: ${DNS[*]}"
+  echo "[SIMULATION] برای اعمال واقعی، اسکریپت را بدون --dry-run و با sudo اجرا کنید."
+  exit 0
+fi
+
+require_root
+apply_dns "${DNS[@]}"
+
+echo "[SUCCESS] تنظیمات اعمال شد."
+cat /etc/resolv.conf
+show_rollback
