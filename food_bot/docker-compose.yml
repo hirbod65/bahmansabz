@@ -1,0 +1,73 @@
+networks:
+  foodbot-net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  prometheus_data:
+  grafana_data:
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: foodbot_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: foodbot_root_pass
+      MYSQL_DATABASE: foodbot
+      MYSQL_USER: foodbot
+      MYSQL_PASSWORD: foodbot_pass
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    networks:
+      - foodbot-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  food_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: food_bot:latest
+    container_name: food_bot
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/foodbot
+      SPRING_DATASOURCE_USERNAME: foodbot
+      SPRING_DATASOURCE_PASSWORD: foodbot_pass
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+    ports:
+      - "8080:8080"
+    networks:
+      - foodbot-net
+
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - foodbot-net
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    networks:
+      - foodbot-net

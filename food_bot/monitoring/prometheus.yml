@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "food_bot"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["food_bot:8080"]
